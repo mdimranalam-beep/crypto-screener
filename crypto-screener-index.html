@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Crypto Screener</title>
+<style>
+:root{--bg:#07111f;--card:#0d1b2e;--line:#1d3048;--text:#edf5ff;--muted:#8fa4bd;--green:#20d99a;--red:#ff5d73;--yellow:#ffc857;--blue:#5da9ff}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#06101d,#091525);color:var(--text);font-family:Inter,system-ui,Arial,sans-serif}
+header{padding:18px 16px 12px;position:sticky;top:0;background:rgba(6,16,29,.94);backdrop-filter:blur(12px);z-index:5;border-bottom:1px solid var(--line)}
+h1{font-size:22px;margin:0 0 5px}.sub{color:var(--muted);font-size:12px}.top{display:flex;justify-content:space-between;gap:12px;align-items:center}.status{font-size:11px;color:var(--muted)}
+.controls{display:flex;gap:8px;margin-top:12px;overflow:auto}.controls button,.controls select{background:#10243b;color:var(--text);border:1px solid #25415f;border-radius:9px;padding:9px 12px;white-space:nowrap}
+button.active{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue) inset}.wrap{max-width:1200px;margin:auto;padding:14px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:13px}.label{font-size:11px;color:var(--muted);text-transform:uppercase}.big{font-size:19px;font-weight:800;margin-top:5px}.green{color:var(--green)}.red{color:var(--red)}.yellow{color:var(--yellow)}
+.tablebox{background:var(--card);border:1px solid var(--line);border-radius:13px;overflow:auto}.tabletitle{padding:13px;border-bottom:1px solid var(--line);font-weight:700;display:flex;justify-content:space-between}
+table{width:100%;border-collapse:collapse;min-width:950px}th,td{padding:10px 9px;border-bottom:1px solid #172a40;text-align:left;font-size:12px;white-space:nowrap}th{color:var(--muted);font-size:10px;text-transform:uppercase;position:sticky;top:0;background:#0d1b2e}tr:hover{background:#10243b}.coin{font-weight:800}.pill{display:inline-block;padding:4px 7px;border-radius:999px;font-size:10px;font-weight:800}.buy{background:rgba(32,217,154,.14);color:var(--green)}.sell{background:rgba(255,93,115,.14);color:var(--red)}.watch{background:rgba(255,200,87,.13);color:var(--yellow)}.zone{color:var(--blue)}.tv{color:var(--blue);text-decoration:none}.loader{text-align:center;padding:25px;color:var(--muted)}
+.chartbox{margin-top:14px;background:var(--card);border:1px solid var(--line);border-radius:13px;overflow:hidden}.charthead{padding:11px 13px;display:flex;justify-content:space-between;align-items:center}.chart{height:520px;background:#0b1625}.chart iframe{width:100%;height:100%;border:0}
+.note{font-size:10px;color:var(--muted);padding:10px 13px;border-top:1px solid var(--line)}
+@media(max-width:700px){.cards{grid-template-columns:1fr}.chart{height:420px}h1{font-size:19px}}
+</style>
+</head>
+<body>
+<header><div class="top"><div><h1>⚡ Crypto Screener</h1><div class="sub">Top 20 perpetuals • Binance public data</div></div><div id="status" class="status">Starting…</div></div>
+<div class="controls"><button class="tf active" data-tf="5m">5m</button><button class="tf" data-tf="15m">15m</button><button class="tf" data-tf="1h">1H</button><select id="filter"><option value="all">All signals</option><option value="buy">Best Buy</option><option value="sell">Best Sell</option><option value="demand">Demand zone</option><option value="supply">Supply zone</option></select><button id="refresh">↻ Refresh</button></div></header>
+<main class="wrap">
+<section class="cards"><div class="card"><div class="label">Best Buy</div><div id="bestBuy" class="big green">—</div></div><div class="card"><div class="label">Best Sell</div><div id="bestSell" class="big red">—</div></div><div class="card"><div class="label">Market Bias</div><div id="bias" class="big yellow">—</div></div></section>
+<section class="tablebox"><div class="tabletitle"><span>Live Screener</span><span id="count" class="status">0 coins</span></div><div id="table" class="loader">Loading market data…</div></section>
+<section class="chartbox"><div class="charthead"><b>Interactive chart</b><select id="chartCoin"></select></div><div class="chart"><iframe id="chartFrame" allowtransparency="true" scrolling="no"></iframe></div><div class="note">Signals are screening conditions, not guaranteed trade calls. Confirm price action and manage risk before trading.</div></section>
+</main>
+<script>
+const COINS=['BTC','ETH','BNB','SOL','XRP','ADA','DOGE','AVAX','LINK','DOT','TRX','LTC','BCH','UNI','NEAR','APT','SUI','FIL','ARB','OP'];
+let tf='5m', rows=[];
+const $=id=>document.getElementById(id);
+function ema(v,p){let k=2/(p+1),e=v[0];for(let i=1;i<v.length;i++)e=v[i]*k+e*(1-k);return e}
+function rsi(v,p=14){let g=0,l=0;for(let i=Math.max(1,v.length-p);i<v.length;i++){let d=v[i]-v[i-1];if(d>0)g+=d;else l-=d}if(l===0)return 100;return 100-100/(1+g/l)}
+function calc(k){
+ const c=k.map(x=>+x[4]), hi=k.map(x=>+x[2]), lo=k.map(x=>+x[3]), vol=k.map(x=>+x[5]);
+ const e20=ema(c,20),e50=ema(c,50),e200=ema(c,Math.min(200,c.length)), rr=rsi(c);
+ const avgv=vol.slice(-20).reduce((a,b)=>a+b,0)/20, rv=vol.at(-1)/avgv;
+ const max20=Math.max(...hi.slice(-20)),min20=Math.min(...lo.slice(-20));
+ const pos=(c.at(-1)-min20)/Math.max(max20-min20,1);
+ let score=50; score+=(c.at(-1)>e20?8:-8)+(e20>e50?10:-10)+(c.at(-1)>e200?8:-8)+(rr>50?6:-6)+(rv>1.2?(c.at(-1)>c.at(-2)?8:-8):0);
+ score=Math.max(0,Math.min(100,Math.round(score)));
+ return {price:c.at(-1),rr,rv,score,signal:score>=72?'BUY':score<=28?'SELL':'WATCH',zone:pos<.22?'DEMAND':pos>.78?'SUPPLY':'NEUTRAL',e20,e50,e200};
+}
+async function getCoin(sym){
+ const r=await fetch('https://fapi.binance.com/fapi/v1/klines?symbol='+sym+'USDT&interval='+tf+'&limit=220');
+ if(!r.ok)throw Error('API'); return calc(await r.json());
+}
+async function load(){
+ $('status').textContent='Updating…';let out=[];
+ for(const coin of COINS){try{out.push({coin,...await getCoin(coin)})}catch(e){}}
+ rows=out;render();$('status').textContent='Updated '+new Date().toLocaleTimeString();
+}
+function render(){
+ const f=$('filter').value;
+ let x=rows.filter(r=>f==='all'||(f==='buy'&&r.signal==='BUY')||(f==='sell'&&r.signal==='SELL')||(f==='demand'&&r.zone==='DEMAND')||(f==='supply'&&r.zone==='SUPPLY')).sort((a,b)=>b.score-a.score);
+ $('count').textContent=x.length+' coins';
+ $('bestBuy').textContent=rows.filter(r=>r.signal==='BUY').sort((a,b)=>b.score-a.score)[0]?.coin||'—';
+ $('bestSell').textContent=rows.filter(r=>r.signal==='SELL').sort((a,b)=>a.score-b.score)[0]?.coin||'—';
+ const bull=rows.filter(r=>r.score>=60).length,bear=rows.filter(r=>r.score<=40).length;
+ $('bias').textContent=bull>bear+3?'BULLISH':bear>bull+3?'BEARISH':'NEUTRAL';
+ $('table').innerHTML='<table><thead><tr><th>Coin</th><th>Price</th><th>RSI</th><th>Rel Vol</th><th>EMA20</th><th>EMA50</th><th>EMA200</th><th>Zone</th><th>Signal</th><th>Score</th><th>TradingView</th></tr></thead><tbody>'+
+ x.map(r=>'<tr><td class="coin">'+r.coin+'</td><td>'+fmt(r.price)+'</td><td>'+r.rr.toFixed(1)+'</td><td>'+r.rv.toFixed(2)+'x</td><td>'+fmt(r.e20)+'</td><td>'+fmt(r.e50)+'</td><td>'+fmt(r.e200)+'</td><td class="zone">'+r.zone+'</td><td><span class="pill '+(r.signal==='BUY'?'buy':r.signal==='SELL'?'sell':'watch')+'">'+r.signal+'</span></td><td><b>'+r.score+'</b></td><td><a class="tv" target="_blank" href="https://www.tradingview.com/chart/?symbol=BINANCE%3A'+r.coin+'USDT">Open ↗</a></td></tr>').join('')+'</tbody></table>';
+}
+function fmt(n){return n>=1000?n.toLocaleString(undefined,{maximumFractionDigits:2}):n>=1?n.toFixed(3):n.toPrecision(5)}
+function chart(){
+ const s=$('chartCoin').value||'BTC';
+ $('chartFrame').src='https://www.tradingview.com/widgetembed/?symbol=BINANCE%3A'+s+'USDT&interval='+(tf==='1h'?'60':tf==='15m'?'15':'5')+'&theme=dark&style=1&locale=en&hide_top_toolbar=0&hide_legend=0&saveimage=0';
+}
+$('refresh').onclick=load;$('filter').onchange=render;$('chartCoin').onchange=chart;
+document.querySelectorAll('.tf').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tf').forEach(x=>x.classList.remove('active'));b.classList.add('active');tf=b.dataset.tf;load();chart()});
+COINS.forEach(c=>$('chartCoin').insertAdjacentHTML('beforeend','<option>'+c+'</option>'));
+load();chart();setInterval(load,60000);
+</script>
+</body></html>
